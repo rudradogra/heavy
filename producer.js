@@ -1,6 +1,8 @@
 import 'dotenv/config';
+import { randomUUID } from 'crypto';
 import WebSocket from 'ws';
 import { Kafka } from 'kafkajs';
+import { initTraceback, publishTelemetry } from './traceback.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -74,10 +76,14 @@ function handleAlpacaMessage(raw, ws) {
 
       case 'error':
         console.error('[producer] Alpaca error:', msg);
+        publishTelemetry({
+          level: 'ERROR',
+          message: `[producer/alpaca] ${JSON.stringify(msg)}`,
+          traceId: randomUUID(),
+        });
         break;
 
       case 't':
-        // Trade event — extract fields and publish to Kafka
         publishTrade({
           symbol: msg.S,
           price: msg.p,
@@ -87,7 +93,6 @@ function handleAlpacaMessage(raw, ws) {
         break;
 
       default:
-        // Ignore quotes, bars, heartbeats, etc.
         break;
     }
   }
@@ -105,7 +110,17 @@ async function publishTrade({ symbol, price, size, timestamp }) {
 
     console.log('[producer] Published trade:', payload);
   } catch (err) {
+    const telemetryMessage =
+      `[producer/publishTrade] ${err.name}: ${err.message}\n${err.stack}`;
+
     console.error('[producer] Failed to publish to Kafka:', err.message);
+
+    await publishTelemetry({
+      level: 'ERROR',
+      message: telemetryMessage,
+      traceId: randomUUID(),
+      context: { payload },
+    });
   }
 }
 
@@ -113,6 +128,8 @@ async function publishTrade({ symbol, price, size, timestamp }) {
 // Main entry point
 // ---------------------------------------------------------------------------
 async function start() {
+  await initTraceback();
+
   console.log('[producer] Connecting to Kafka broker at', KAFKA_BROKER);
   await producer.connect();
   console.log('[producer] Kafka producer connected');
@@ -136,13 +153,27 @@ async function start() {
 
   ws.on('error', (err) => {
     console.error('[producer] WebSocket error:', err.message);
+
+    publishTelemetry({
+      level: 'ERROR',
+      message: `[producer/websocket] ${err.name}: ${err.message}\n${err.stack}`,
+      traceId: randomUUID(),
+    });
   });
 
   ws.on('close', (code, reason) => {
+    const closeMessage =
+      `[producer/websocket] connection closed (code=${code}, reason=${reason || 'none'})`;
+
     console.log(`[producer] WebSocket closed (code=${code}, reason=${reason || 'none'})`);
+
+    publishTelemetry({
+      level: 'WARN',
+      message: closeMessage,
+      traceId: randomUUID(),
+    });
   });
 
-  // Graceful shutdown
   const shutdown = async () => {
     console.log('[producer] Shutting down...');
     ws.close();
