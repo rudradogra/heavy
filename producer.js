@@ -128,11 +128,18 @@ async function publishTrade({ symbol, price, size, timestamp }) {
 // Main entry point
 // ---------------------------------------------------------------------------
 async function start() {
-  await initTraceback();
+  const tracebackReady = await initTraceback();
 
   console.log('[producer] Connecting to Kafka broker at', KAFKA_BROKER);
   await producer.connect();
   console.log('[producer] Kafka producer connected');
+
+  if (tracebackReady) {
+    await publishTelemetry({
+      level: 'INFO',
+      message: '[heavy/startup] producer telemetry open',
+    });
+  }
 
   console.log('[producer] Opening Alpaca WebSocket at', ALPACA_WS_URL);
   const ws = new WebSocket(ALPACA_WS_URL);

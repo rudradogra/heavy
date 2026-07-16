@@ -172,7 +172,14 @@ function startHeartbeat() {
 // Main entry point
 // ---------------------------------------------------------------------------
 async function start() {
-  await initTraceback();
+  const tracebackReady = await initTraceback();
+
+  if (tracebackReady) {
+    await publishTelemetry({
+      level: 'INFO',
+      message: '[heavy/startup] telemetry channel open — worker connected to Traceback',
+    });
+  }
 
   console.log('[worker] Connecting to Kafka broker at', KAFKA_BROKER);
   await consumer.connect();

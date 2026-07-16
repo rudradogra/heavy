@@ -25,9 +25,11 @@ export async function initTraceback() {
     rabbitChannel = channel;
     await channel.assertQueue(TRACE_QUEUE, { durable: true });
     console.log(`[traceback] queue "${TRACE_QUEUE}" ready (service=${SERVICE_NAME})`);
+    return true;
   } catch {
     rabbitChannel = null;
     console.warn('[traceback] RabbitMQ offline — telemetry logs to console only');
+    return false;
   }
 }
 

@@ -97,7 +97,7 @@ node worker.js
 node producer.js
 ```
 
-Normal trade ticks stay in Kafka only — they are **not** sent to Traceback. Only errors, warnings, and periodic heartbeats are published.
+Normal trade ticks stay in Kafka only — they are **not** sent to Traceback. Only startup pings, errors, warnings, and periodic heartbeats are published.
 
 ## Traceback telemetry
 
@@ -105,6 +105,8 @@ Normal trade ticks stay in Kafka only — they are **not** sent to Traceback. On
 
 | Signal | Level | Source | When |
 |--------|-------|--------|------|
+| Startup ping | `INFO` | worker.js | Immediately after RabbitMQ connects |
+| Startup ping | `INFO` | producer.js | After Kafka connects (if RabbitMQ is up) |
 | Processing error | `ERROR` | worker.js | `processMessage` catch (e.g. missing `trade.routing`) |
 | Bottleneck | `WARN` | worker.js | Message processing exceeds `PROCESSING_WARN_MS` (default 500ms) |
 | Heartbeat | `INFO` | worker.js | Every 60s with processed/error counts and latency stats |
@@ -128,9 +130,36 @@ Normal trade ticks stay in Kafka only — they are **not** sent to Traceback. On
 
 If RabbitMQ is offline, Heavy continues running. Telemetry is logged locally with `[telemetry]` prefix and a console warning — the pipeline does not crash.
 
-## Testing Traceback integration
+## Verifying Traceback integration
 
-### 1. Trigger a real-world error
+### 1. Confirm health channel is live (startup ping)
+
+With Traceback infrastructure, log-processor, and dashboard running:
+
+```bash
+node worker.js
+```
+
+Within a few seconds you should see in the worker terminal:
+
+```
+[traceback] queue "logs.ingest" ready (service=heavy)
+[telemetry] {"log_level":"INFO","service_name":"heavy","message":"[heavy/startup] telemetry channel open — worker connected to Traceback",...}
+```
+
+In the log-processor terminal, the same INFO line should appear.
+
+On the Traceback dashboard (http://localhost:3000), open the **heavy** monitored application — the **health channel** should show as **live** without waiting for the 60s heartbeat.
+
+Optionally start the producer too:
+
+```bash
+node producer.js
+```
+
+Look for `[heavy/startup] producer telemetry open` in log-processor.
+
+### 2. Trigger a real-world error
 
 With `worker.js` running:
 
@@ -148,7 +177,7 @@ curl http://localhost:3000/api/failure-sets
 
 Look for an incident with `root_cause_service: heavy`.
 
-### 2. Trigger a bottleneck warning
+### 3. Trigger a bottleneck warning
 
 ```bash
 node inject-slow.js
@@ -156,7 +185,7 @@ node inject-slow.js
 
 Injects a message with `__slowMs: 600`, exceeding the 500ms threshold. Emits a `WARN` to Traceback.
 
-### 3. Heartbeat
+### 4. Heartbeat
 
 Leave `worker.js` running for 60+ seconds. INFO heartbeats appear in the log-processor:
 
@@ -164,7 +193,7 @@ Leave `worker.js` running for 60+ seconds. INFO heartbeats appear in the log-pro
 [worker/heartbeat] processed=1200 errors=2 p95_latency_ms=45 last_offset=...
 ```
 
-### 4. RabbitMQ down (degraded mode)
+### 5. RabbitMQ down (degraded mode)
 
 Stop Traceback's RabbitMQ container. Restart `worker.js` — you should see:
 
